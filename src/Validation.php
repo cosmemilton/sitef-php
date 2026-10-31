@@ -13,6 +13,17 @@ final class Validation
     {
         return str_starts_with($path, '/') || preg_match('~^[A-Za-z]:[\\\\/]~D', $path) === 1 || str_starts_with($path, '\\\\');
     }
+    public static function encode(string $value, string $encoding = 'windows-1252'): string
+    {
+        self::text($value, 'value');
+        if (preg_match('//u', $value) !== 1) throw new SitefException('INVALID_UTF8', 'Texto da aplicação deve usarUTF8.');
+        if ($encoding === 'utf-8') return $value;
+        $target = $encoding === 'windows-1252' ? 'Windows-1252' : ($encoding === 'ascii' ? 'ASCII' : null);
+        if ($target === null) throw new SitefException('INVALID_ENCODING', 'Codificação não suportada.');
+        $bytes = @iconv('UTF-8', $target, $value);
+        if ($bytes === false || @iconv($target, 'UTF-8', $bytes) !== $value) throw new SitefException('UNENCODABLE_INPUT', 'Texto não representável na codificação nativa, sem conversão com perda.');
+        return $bytes;
+    }
     public static function status(array $result): int
     {
         if (!isset($result['status']) || !is_int($result['status'])) throw new SitefException('INVALID_NATIVE_RESULT', 'Retorno nativo sem status inteiro.', true);

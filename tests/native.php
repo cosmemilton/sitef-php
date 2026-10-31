@@ -16,6 +16,7 @@ $client = null;
 try {
     $client = Sitef::create(['bridgeExecutable' => $bridge, 'bridgeDirectory' => dirname($bridge), 'libraryPath' => $fixture, 'stateDirectory' => $directory, 'testMode' => true, 'timeoutSeconds' => 5,
         'configuration' => $configuration,
+        'hooks' => ['storeReceipt' => static fn(): bool => true, 'printReceipt' => static fn(): bool => true], // Own synthetic receipt acknowledgement only.
         'onExchange' => static function ($request) use (&$seen): void { $seen[] = $request; },
         'interaction' => static function ($request): array { if ($request['command'] !== 30 || $request['fieldType'] !== 999123 || $request['minLength'] !== 1 || $request['maxLength'] !== 4) throw new RuntimeException('Unexpected fixture request'); return ['buffer' => '1234']; },
     ]);
@@ -24,7 +25,7 @@ try {
     if ($client->finalize(false)['remoteConfirmation'] !== 'not-reported') throw new RuntimeException('Void finish semantics mismatch');
     if ($client->callNative('pendingCount', ['fiscalDate' => $input['fiscalDate'], 'fiscalDocument' => $input['fiscalDocument']])['status'] !== 2) throw new RuntimeException('Pending-count domain lost');
     if ($client->validateBarcode('1234')['status'] !== 3) throw new RuntimeException('Barcode return lost');
-    if ($client->transact([...$input, 'functionId' => 999])['status'] !== -98765) throw new RuntimeException('Negative native return lost');
+    if ($client->transact([...$input, 'functionId' => 999], options: ['requiresFinalization' => false])['status'] !== -98765) throw new RuntimeException('Negative native return lost');
     $client->close(); $client = null;
     echo "PASS native TCP/ABI: handshake, environment nonce removed by Rust, configuration, encoding/raw echo, unknown field, interactive response, void finish, auxiliary domains, unknown negative status\n";
 } finally {

@@ -28,16 +28,14 @@ final class FileJournal implements Journal
         try {
             if ($bytes === false || strlen($bytes) > 1048576) throw new \RuntimeException();
             $record = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
-            self::validateRecord($record);
-            return $record;
-        } catch (\Throwable $error) { throw new SitefException('JOURNAL_INVALID', 'Journal inválido; reconciliação necessária.', false, null, $error); }
+            if (!is_array($record)) throw new \RuntimeException();
+            return JournalRecord::normalize($record);
+        } catch (\Throwable $error) { if ($error instanceof SitefException && $error->errorCode === 'LEGACY_PAYLOAD_MIGRATION_REQUIRED') throw $error; throw new SitefException('JOURNAL_INVALID', 'Journal inválido; reconciliação necessária.', false, null, $error); }
     }
     public function write(array $record): void
     {
         if (!is_resource($this->lease)) throw new SitefException('JOURNAL_UNLOCKED', 'Journal sem exclusividade.');
-        $keys = ['version', 'id', 'storeId', 'terminalId', 'functionId', 'entryPoint', 'fiscalDocument', 'fiscalDate', 'fiscalTime', 'state', 'decision', 'finalizationParameters', 'status', 'updatedAt'];
-        $record = array_intersect_key($record, array_flip($keys));
-        self::validateRecord($record);
+        $record = JournalRecord::normalize($record);
         $encoded = json_encode($record, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         if (strlen($encoded) > 1048576) throw new SitefException('JOURNAL_INVALID', 'Metadados excedem limite do journal.');
         $temporary = $this->path . '.' . bin2hex(random_bytes(12)) . '.lock.tmp';

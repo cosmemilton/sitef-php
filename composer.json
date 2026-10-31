@@ -3,7 +3,7 @@
   "description": "Cliente PHP para CliSiTef com processo nativo isolado e callbacks de interação",
   "type": "library",
   "license": "proprietary",
-  "require": { "php": ">=8.2", "ext-json": "*" },
+  "require": { "php": ">=8.2", "ext-json": "*", "ext-iconv": "*" },
   "autoload": { "psr-4": { "Cosmemilton\\Sitef\\": "src/" } },
   "scripts": { "test": "php tests/run.php", "lint": "php scripts/lint.php", "check": ["@lint", "@test"] }
 }

@@ -27,7 +27,10 @@ final class Sitef
             $configuration = $options['configuration'];
             $terminalKey = hash('sha256', ($configuration['storeId'] ?? '') . "\0" . ($configuration['terminalId'] ?? ''));
             $journal = new FileJournal(rtrim($options['stateDirectory'], '\\/') . DIRECTORY_SEPARATOR . $terminalKey . '.journal.json');
-            return Client::connect($transport, $configuration, $journal, $options['interaction'], $options['onExchange'] ?? null, $options['bufferSize'] ?? 20000, $options['maxSteps'] ?? 100000);
+            $semantic = $options['semantics'] ?? [];
+            foreach (['hooks', 'receiptStoragePolicy', 'monetaryFormats', 'confirmationNetworkField'] as $key) if (array_key_exists($key, $options)) $semantic[$key] = $options[$key];
+            $semantic['nativeEncoding'] = $encoding;
+            return Client::connect($transport, $configuration, $journal, $options['interaction'], $options['onExchange'] ?? null, $options['bufferSize'] ?? 20000, $options['maxSteps'] ?? 100000, $semantic);
         } catch (\Throwable $error) { $transport->close(); throw $error; }
     }
 }

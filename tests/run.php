@@ -14,29 +14,33 @@ function input(array $patch = []): array { return [...['functionId' => 0, 'amoun
 function exchange(int $command, string $buffer = '', int $field = 0, array $patch = []): array { return [...['status' => 10000, 'command' => $command, 'fieldType' => $field, 'minLength' => 0, 'maxLength' => 20, 'buffer' => $buffer], ...$patch]; }
 final class MemoryJournal implements Journal {
     public ?array $record = null; public bool $locked = false; public ?string $failOn = null;
+    public array $history = [];
     public function acquire(): void { if ($this->locked) throw new RuntimeException('locked'); $this->locked = true; }
     public function read(): ?array { return $this->record; }
-    public function write(array $record): void { if ($this->failOn === $record['state']) throw new RuntimeException('disk fixture'); $this->record = $record; }
+    public function write(array $record): void { if ($this->failOn === $record['state']) throw new RuntimeException('disk fixture'); $this->record = $record; $this->history[] = $record; }
     public function release(): void { $this->locked = false; }
 }
 final class FakeTransport implements Transport {
     public array $calls = []; public bool $closed = false; public int $startStatus = 10000; public bool $finishFails = false; public bool $continueFails = false;
+    public int $finishCount = 0; public ?int $finishFailureAt = null; public ?Closure $onCall = null;
     public function __construct(public array $steps = [['status' => 0]]) {}
     public function call(string $method, array $parameters = []): array {
         $this->calls[] = [$method, $parameters];
+        if ($this->onCall !== null) ($this->onCall)($method, $parameters);
         if ($method === 'configure') return ['status' => 0];
-        if ($method === 'start') return ['status' => $this->startStatus];
+        if (in_array($method, ['start', 'startBanking', 'readSecureCard', 'readTrack3', 'readPassword', 'readChip'], true)) return ['status' => $this->startStatus];
         if ($method === 'continue') { if ($this->continueFails) throw new SitefException('BRIDGE_EOF', 'fixture', true); return array_shift($this->steps) ?? ['status' => 0]; }
-        if ($method === 'finish') { if ($this->finishFails) throw new SitefException('BRIDGE_TIMEOUT', 'fixture', true); return ['returned' => true]; }
+        if ($method === 'finish') { $this->finishCount++; if ($this->finishFails || $this->finishFailureAt === $this->finishCount) throw new SitefException('BRIDGE_TIMEOUT', 'fixture', true); return ['returned' => true]; }
         if ($method === 'pendingCount') return ['status' => 2];
         if ($method === 'validateBarcode') return ['status' => 3, 'documentType' => 1];
         return ['status' => 0];
     }
     public function close(): void { $this->closed = true; }
 }
-function setup(array $steps = [['status' => 0]], ?callable $interaction = null, ?callable $observer = null, ?MemoryJournal $journal = null): array {
+function setup(array $steps = [['status' => 0]], ?callable $interaction = null, ?callable $observer = null, ?MemoryJournal $journal = null, ?array $semantics = null): array {
     $transport = new FakeTransport($steps); $journal ??= new MemoryJournal();
-    $client = Client::connect($transport, ['server' => '127.0.0.1', 'storeId' => '00000000', 'terminalId' => 'AA123456', 'additionalParameters' => '[X=1]'], $journal, $interaction ?? static fn(): array => [], $observer);
+    $semantics ??= ['hooks' => ['storeReceipt' => static fn(): bool => true, 'printReceipt' => static fn(): bool => true]]; // Explicit acknowledgements for own fixtures only.
+    $client = Client::connect($transport, ['server' => '127.0.0.1', 'storeId' => '00000000', 'terminalId' => 'AA123456', 'additionalParameters' => '[X=1]'], $journal, $interaction ?? static fn(): array => [], $observer, 20000, 100000, $semantics);
     return [$client, $transport, $journal];
 }
 $tests = [];
@@ -74,8 +78,8 @@ $tests['transport failure after start makes journal uncertain and blocks replay'
 };
 $tests['failed finalization persists decision and scope; recovery rejects changes'] = static function (): void {
     [$client, $transport] = setup(); $client->transact(input()); $transport->finishFails = true;
-    fails('FINALIZATION_UNCERTAIN', static fn() => $client->finalize(true, '{NumeroPagamentoCupom=1}')); $id = $client->recovery()['id'];
-    fails('RECOVERY_DECISION_MISMATCH', static fn() => $client->finalizeRecovery(false, $id)); fails('RECOVERY_SCOPE_MISMATCH', static fn() => $client->finalizeRecovery(true, $id, '{NumeroPagamentoCupom=2}'));
+    fails('FINALIZATION_UNCERTAIN', static fn() => $client->finalize(true, '{FutureScope=1}')); $id = $client->recovery()['id'];
+    fails('RECOVERY_DECISION_MISMATCH', static fn() => $client->finalizeRecovery(false, $id)); fails('RECOVERY_SCOPE_MISMATCH', static fn() => $client->finalizeRecovery(true, $id, '{FutureScope=2}'));
     $transport->finishFails = false; same('not-reported', $client->finalizeRecovery(true, $id)['remoteConfirmation']); $client->close();
 };
 $tests['crash journal resumes uncertain; terminal mismatch releases lock'] = static function (): void {
@@ -136,6 +140,7 @@ $tests['production factory refuses Linux before launching a process'] = static f
     if (PHP_OS_FAMILY !== 'Windows') fails('UNSUPPORTED_RUNTIME', static fn() => Sitef::create([]));
 };
 
+require __DIR__ . '/semantic-suite.php';
 $failures = 0;
 foreach ($tests as $name => $operation) {
     try { $operation(); echo "PASS $name\n"; }

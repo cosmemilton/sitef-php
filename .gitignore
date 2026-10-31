@@ -1,0 +1,11 @@
+/vendor/
+/work/
+/native/target/
+*.dll
+*.so
+*.ini
+*.pdf
+*.zip
+*.exe
+*.journal.json*
+*.lock.tmp
